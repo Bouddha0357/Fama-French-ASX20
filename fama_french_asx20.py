@@ -3,57 +3,51 @@ import pandas as pd
 import yfinance as yf
 import statsmodels.api as sm
 
-st.set_page_config(page_title="Fama-French Regression", layout="centered")
+st.set_page_config(page_title="Daily Fama-French Regression", layout="centered")
+st.title("📈 Daily Fama-French 3-Factor Regression (ASX)")
 
-st.title("📊 Fama-French 3-Factor Regression (ASX)")
+# === File upload ===
+uploaded_file = st.file_uploader("Upload Daily Fama-French Factor File (CSV)", type=["csv"])
 
-# === 1. File upload ===
-uploaded_file = st.file_uploader("Upload your Fama-French CSV (must include 'Mkt-RF', 'SMB', 'HML', 'RF')", type=["csv"])
-
-# === 2. Ticker input ===
+# === Ticker input ===
 ticker = st.text_input("Enter ASX Ticker (e.g., BHP.AX):", value="BHP.AX")
 
-# === 3. Date selection ===
-start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
+# === Date range ===
+start_date = st.date_input("Start Date", value=pd.to_datetime("2022-01-01"))
 end_date = st.date_input("End Date", value=pd.to_datetime("2024-12-31"))
 
-# === 4. Process when file and ticker are ready ===
 if uploaded_file and ticker:
     try:
-        # Load factor data
-        factors = pd.read_csv(uploaded_file, index_col=0, parse_dates=True)
-        required_cols = {"Mkt-RF", "SMB", "HML", "RF"}
-        if not required_cols.issubset(factors.columns):
-            st.error(f"CSV file must include columns: {required_cols}")
+        # --- Load daily factors ---
+        factors = pd.read_csv(uploaded_file)
+        factors['Date'] = pd.to_datetime(factors['Date'])
+        factors.set_index('Date', inplace=True)
+
+        # Convert to decimal returns
+        factors = factors[['Mkt-RF', 'SMB', 'HML', 'RF']] / 100
+
+        # --- Load daily stock data ---
+        st.info(f"Downloading data for {ticker}...")
+        data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
+
+        if data.empty or 'Adj Close' not in data.columns:
+            st.error("Stock data not found.")
         else:
-            factors = factors[list(required_cols)] / 100  # Convert % to decimals
+            prices = data['Adj Close'].to_frame(name=ticker)
+            daily_returns = prices.pct_change().dropna()
 
-            # Load stock price
-            st.info(f"Downloading data for {ticker}...")
-            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
+            # --- Align with factor dates ---
+            aligned_returns = daily_returns.loc[daily_returns.index.intersection(factors.index)]
+            aligned_factors = factors.loc[aligned_returns.index]
 
-            if data.empty or 'Adj Close' not in data.columns:
-                st.error("Failed to download valid price data. Check ticker symbol or internet connection.")
-            else:
-                prices = data[['Adj Close']].rename(columns={'Adj Close': ticker})
-                returns = prices.pct_change().dropna()
+            # --- Regression ---
+            df = pd.concat([aligned_returns[ticker], aligned_factors], axis=1).dropna()
+            y = df[ticker] - df['RF']
+            X = sm.add_constant(df[['Mkt-RF', 'SMB', 'HML']])
+            model = sm.OLS(y, X).fit()
 
-                # Align with factors
-                aligned_returns = returns.loc[returns.index.intersection(factors.index)]
-                aligned_factors = factors.loc[aligned_returns.index]
+            st.subheader(f"Regression Results for {ticker}")
+            st.text(model.summary())
 
-                if aligned_returns.empty:
-                    st.error("No overlapping dates between price data and factors.")
-                else:
-                    # Regression
-                    df = pd.concat([aligned_returns[ticker], aligned_factors], axis=1).dropna()
-                    y = df[ticker] - df['RF']
-                    X = df[['Mkt-RF', 'SMB', 'HML']]
-                    X = sm.add_constant(X)
-                    model = sm.OLS(y, X).fit()
-
-                    # Output
-                    st.subheader(f"Regression Results for {ticker}")
-                    st.text(model.summary())
     except Exception as e:
         st.error(f"An error occurred: {e}")
