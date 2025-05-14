@@ -4,13 +4,13 @@ import yfinance as yf
 import statsmodels.api as sm
 
 st.set_page_config(page_title="Daily Fama-French Regression", layout="centered")
-st.title("📈 Daily Fama-French 3-Factor Regression (ASX)")
+st.title("📈 Daily Fama-French 3-Factor Regression (AAPL)")
 
 # === File upload ===
 uploaded_file = st.file_uploader("Upload Daily Fama-French Factor File (CSV)", type=["csv"])
 
 # === Ticker input ===
-ticker = st.text_input("Enter ASX Ticker (e.g., BHP.AX):", value="BHP.AX")
+ticker = st.text_input("Enter ASX Ticker (e.g., BHP.AX):", value="AAPL")
 
 # === Date range ===
 start_date = st.date_input("Start Date", value=pd.to_datetime("2022-01-01"))
