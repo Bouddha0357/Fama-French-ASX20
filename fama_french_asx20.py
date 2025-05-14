@@ -1,63 +1,59 @@
-import yfinance as yf
+import streamlit as st
 import pandas as pd
+import yfinance as yf
 import statsmodels.api as sm
 
-# === Step 1: Define ASX 20 tickers (Yahoo format ends with '.AX') ===
-asx20 = [
-    "BHP.AX", "CBA.AX", "WBC.AX", "NAB.AX", "ANZ.AX",
-    "WOW.AX", "WES.AX", "TLS.AX", "CSL.AX", "MQG.AX",
-    "FMG.AX", "TCL.AX", "BXB.AX", "GMG.AX", "STO.AX",
-    "RIO.AX", "SUN.AX", "ORG.AX", "APA.AX", "ALL.AX"
-]
+st.set_page_config(page_title="Fama-French Regression", layout="centered")
 
-# === Step 2: Download adjusted close prices ===
-def get_prices(tickers, start="2020-01-01", end="2024-12-31"):
-    data = yf.download(tickers, start=start, end=end, group_by='ticker', auto_adjust=True)
-    if 'Adj Close' in data.columns:
-        return data['Adj Close']  # flat structure
-    elif isinstance(data.columns, pd.MultiIndex):
-        return data.loc[:, pd.IndexSlice['Adj Close', :]].droplevel(0, axis=1)  # clean multi-index
-    else:
-        raise ValueError("Unexpected data structure returned by yfinance.")
+st.title("📊 Fama-French 3-Factor Regression (ASX)")
 
-# === Step 3: Calculate percentage returns ===
-def calculate_returns(price_data):
-    return price_data.pct_change().dropna()
+# === 1. File upload ===
+uploaded_file = st.file_uploader("Upload your Fama-French CSV (must include 'Mkt-RF', 'SMB', 'HML', 'RF')", type=["csv"])
 
-# === Step 4: Load Fama-French factors ===
-def load_fama_french(filepath):
-    factors = pd.read_csv(filepath, index_col=0, parse_dates=True)
-    factors = factors.loc[:, ['Mkt-RF', 'SMB', 'HML', 'RF']] / 100  # convert % to decimals
-    return factors
+# === 2. Ticker input ===
+ticker = st.text_input("Enter ASX Ticker (e.g., BHP.AX):", value="BHP.AX")
 
-# === Step 5: Run Fama-French regression for each stock ===
-def fama_french_regression(stock_returns, factors):
-    results = {}
-    for ticker in stock_returns.columns:
-        df = pd.concat([stock_returns[ticker], factors], axis=1).dropna()
-        y = df[ticker] - df['RF']  # excess return
-        X = df[['Mkt-RF', 'SMB', 'HML']]
-        X = sm.add_constant(X)
-        model = sm.OLS(y, X).fit()
-        results[ticker] = model
-    return results
+# === 3. Date selection ===
+start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
+end_date = st.date_input("End Date", value=pd.to_datetime("2024-12-31"))
 
-# === Step 6: Display regression results ===
-def print_results(models):
-    for ticker, model in models.items():
-        print(f"\n=== Regression Results for {ticker} ===")
-        print(model.summary())
+# === 4. Process when file and ticker are ready ===
+if uploaded_file and ticker:
+    try:
+        # Load factor data
+        factors = pd.read_csv(uploaded_file, index_col=0, parse_dates=True)
+        required_cols = {"Mkt-RF", "SMB", "HML", "RF"}
+        if not required_cols.issubset(factors.columns):
+            st.error(f"CSV file must include columns: {required_cols}")
+        else:
+            factors = factors[list(required_cols)] / 100  # Convert % to decimals
 
-# === MAIN EXECUTION ===
-if __name__ == "__main__":
-    prices = get_prices(asx20)
-    returns = calculate_returns(prices)
-    
-    # Replace with path to your Fama-French AU factors file
-    factors = load_fama_french("fama_french_au.csv")
-    
-    aligned_returns = returns.loc[returns.index.intersection(factors.index)]
-    aligned_factors = factors.loc[aligned_returns.index]
-    
-    models = fama_french_regression(aligned_returns, aligned_factors)
-    print_results(models)
+            # Load stock price
+            st.info(f"Downloading data for {ticker}...")
+            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
+
+            if data.empty or 'Adj Close' not in data.columns:
+                st.error("Failed to download valid price data. Check ticker symbol or internet connection.")
+            else:
+                prices = data[['Adj Close']].rename(columns={'Adj Close': ticker})
+                returns = prices.pct_change().dropna()
+
+                # Align with factors
+                aligned_returns = returns.loc[returns.index.intersection(factors.index)]
+                aligned_factors = factors.loc[aligned_returns.index]
+
+                if aligned_returns.empty:
+                    st.error("No overlapping dates between price data and factors.")
+                else:
+                    # Regression
+                    df = pd.concat([aligned_returns[ticker], aligned_factors], axis=1).dropna()
+                    y = df[ticker] - df['RF']
+                    X = df[['Mkt-RF', 'SMB', 'HML']]
+                    X = sm.add_constant(X)
+                    model = sm.OLS(y, X).fit()
+
+                    # Output
+                    st.subheader(f"Regression Results for {ticker}")
+                    st.text(model.summary())
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
