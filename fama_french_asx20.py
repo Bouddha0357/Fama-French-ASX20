@@ -22,18 +22,15 @@ if uploaded_file and ticker:
         # Read French factor data properly (monthly format)
         factors = pd.read_csv(uploaded_file, skiprows=6)
 
-        # Inspect the columns for debugging
-        st.write(factors.columns)  # Check column names
+        # Inspect the first few rows to check the 'Date' column
+        st.write(factors['Date'].head())  # Print the first few rows of the 'Date' column
 
         # Rename and clean column names
         factors.rename(columns=lambda x: x.strip(), inplace=True)
         
-        # Check and convert the 'Date' column to datetime
-        if 'Date' not in factors.columns:
-            st.error("The CSV file does not contain a 'Date' column.")
-        else:
-            factors['Date'] = pd.to_datetime(factors['Date'], format='%Y%m')
-            factors.set_index('Date', inplace=True)
+        # Convert 'Date' column from YYYYMMDD to datetime
+        factors['Date'] = pd.to_datetime(factors['Date'].astype(str), format='%Y%m%d')
+        factors.set_index('Date', inplace=True)
 
         # Drop any footer rows (look for 'END' or missing values)
         factors = factors.dropna(subset=["Mkt-RF"])
