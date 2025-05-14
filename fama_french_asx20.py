@@ -19,12 +19,19 @@ end_date = st.date_input("End Date", value=pd.to_datetime("2024-12-31"))
 if uploaded_file and ticker:
     try:
         # --- Load daily factors ---
-        factors = pd.read_csv(uploaded_file)
-        factors['Date'] = pd.to_datetime(factors['Date'])
+        # Read French factor data properly (monthly format)
+        factors = pd.read_csv(uploaded_file, skiprows=6)
+
+        # Drop any footer rows (look for 'END' or missing values)
+        factors = factors.dropna(subset=["Mkt-RF"])
+
+        # Convert date to datetime index
+        factors['Date'] = pd.to_datetime(factors['Date'], format='%Y%m')
         factors.set_index('Date', inplace=True)
 
-        # Convert to decimal returns
+        # Keep only relevant columns and convert from % to decimal
         factors = factors[['Mkt-RF', 'SMB', 'HML', 'RF']] / 100
+
 
         # --- Load daily stock data ---
         st.info(f"Downloading data for {ticker}...")
